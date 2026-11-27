@@ -1,0 +1,124 @@
+"""Typed download errors, error classification and secret scrubbing."""
+from __future__ import annotations
+
+import math
+import re
+
+from .models import Platform
+
+_SECRETS: set[str] = set()
+_MIN_SECRET_LEN = 4
+_REASON_MAX = 200
+
+_TOKEN_RE = re.compile(r"\d{6,}:[A-Za-z0-9_-]{30,}")
+_COOKIE_RE = re.compile(
+    r"(sessionid|csrftoken|ds_user_id|mid|ig_did)([\"']?\s*[:=\t]\s*[\"']?)[^\s;\"']+"
+)
+
+
+def register_secret(value: str) -> None:
+    """Remember a value that must never appear in logs or chat."""
+    if value and len(value) >= _MIN_SECRET_LEN:
+        _SECRETS.add(value)
+
+
+def scrub(text: str) -> str:
+    """Replace registered secrets, bot tokens and auth cookie values with ***."""
+    for secret in sorted(_SECRETS, key=len, reverse=True):
+        text = text.replace(secret, "***")
+    text = _TOKEN_RE.sub("***", text)
+    return _COOKIE_RE.sub(r"\1\2***", text)
+
+
+class DownloadError(Exception):
+    message = "Download failed"
+
+    @property
+    def user_message(self) -> str:
+        return self.message
+
+
+class LoginRequired(DownloadError):
+    message = "Instagram login expired — refresh cookies"
+
+
+class NoCookies(LoginRequired):
+    message = "No Instagram cookies file — send one with /cookies"
+
+
+class NotFound(DownloadError):
+    message = "Post not found or not visible to your account"
+
+
+class RateLimited(DownloadError):
+    message = "Instagram is rate-limiting; try again in a while"
+
+
+class XLoginRequired(DownloadError):
+    message = "This tweet needs an X login, which this bot doesn't use"
+
+
+class Unsupported(DownloadError):
+    message = "Send an Instagram or X link"
+
+
+class InstagramPaused(DownloadError):
+    def __init__(self, seconds: float):
+        super().__init__(seconds)
+        self.seconds = seconds
+
+    @property
+    def user_message(self) -> str:
+        minutes = math.ceil(self.seconds / 60)
+        return f"Instagram paused for ~{minutes} more min after rate-limiting; send again later"
+
+
+class TooLarge(DownloadError):
+    def __init__(self, size_bytes: int):
+        super().__init__(size_bytes)
+        self.size_bytes = size_bytes
+
+    @property
+    def user_message(self) -> str:
+        mb = round(self.size_bytes / (1024 * 1024))
+        return f"File is {mb} MB — over Telegram's 50 MB limit"
+
+
+class Failed(DownloadError):
+    def __init__(self, reason: str):
+        reason = scrub(reason)[:_REASON_MAX]
+        super().__init__(reason)
+        self.reason = reason
+
+    @property
+    def user_message(self) -> str:
+        return f"Download failed: {self.reason}"
+
+
+_IG_RULES: list[tuple[type[DownloadError], tuple[str, ...]]] = [
+    (RateLimited, ("429", "too many requests", "please wait a few minutes")),
+    (LoginRequired, ("login", "checkpoint_required", "401")),
+    (NotFound, ("404", "not found", "not available", "private")),
+]
+_X_RULES: list[tuple[type[DownloadError], tuple[str, ...]]] = [
+    (XLoginRequired, ("requires authentication", "nsfw", "log in", "login", "age-restricted", "not authorized")),
+    (NotFound, ("404", "unavailable", "not found", "no status found")),
+]
+
+
+def _reason(stderr: str) -> str:
+    lines = [ln.strip() for ln in stderr.splitlines() if ln.strip()]
+    if not lines:
+        return "unknown error"
+    errs = [ln for ln in lines if "ERROR" in ln]
+    return (errs or lines)[-1]
+
+
+def classify(platform: Platform, stderr: str) -> DownloadError:
+    """Map downloader stderr to the most specific DownloadError."""
+    low = stderr.lower()
+    rules = _IG_RULES if platform is Platform.INSTAGRAM else _X_RULES
+    for cls, needles in rules:
+        if any(n in low for n in needles):
+            return cls()
+    return Failed(_reason(stderr))

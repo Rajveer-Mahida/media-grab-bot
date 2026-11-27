@@ -1,1 +1,8 @@
 .superpowers/
+.venv/
+.env
+*.cookies.txt
+cookies/
+downloads/
+__pycache__/
+.pytest_cache/
