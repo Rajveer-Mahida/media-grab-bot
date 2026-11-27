@@ -19,17 +19,19 @@ class FakeRun:
         self.timeouts: list[float] = []
 
     @staticmethod
-    def workdir(args: list[str]) -> Path:
+    def workdir(args: list[str]) -> Path | None:
         if "-D" in args:
             return Path(args[args.index("-D") + 1])
-        out = args[args.index("-o") + 1]
-        return Path(out).parent
+        if "-o" in args:
+            return Path(args[args.index("-o") + 1]).parent
+        return None  # metadata-only call: writes no files
 
     async def __call__(self, args, timeout):
         self.calls.append(list(args))
         self.timeouts.append(timeout)
         files, rc, stdout, stderr, metadata = self.steps.pop(0)
         wd = self.workdir(args)
+        assert wd is not None or not (files or metadata), "step writes files but the call has no output dir"
         for name in files:
             (wd / name).write_bytes(b"x" * 10)
         if metadata is not None:

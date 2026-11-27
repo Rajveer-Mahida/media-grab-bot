@@ -42,6 +42,20 @@ def ytdlp_args(url: str, workdir: Path, extractors: str, cookies: Path | None = 
     return args
 
 
+TEXT_TIMEOUT = 60
+
+
+def ytdlp_text_args(url: str, extractors: str) -> list[str]:
+    """Print only the post's text (JSON-encoded, one line); downloads nothing."""
+    return [sys.executable, "-m", "yt_dlp", "--ignore-config", "--no-progress", "--use-extractors", extractors,
+            "--skip-download", "--ignore-no-formats-error", "--print", "%(description)j", url]
+
+
+def parse_ytdlp_text(stdout: str) -> str | None:
+    lines = [line for line in stdout.splitlines() if line.strip()]
+    return _decode_description(lines[-1]) if lines else None
+
+
 def _media_item(path: Path) -> MediaItem | None:
     kind = kind_for_path(path)
     if kind is None or not path.is_file():
