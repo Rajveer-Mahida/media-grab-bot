@@ -1,0 +1,81 @@
+"""The engine entry point: one link in, downloaded media out."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import httpx
+
+from .errors import InstagramPaused, NoCookies, RateLimited, TooLarge, Unsupported, register_secret
+from .instagram import download_instagram
+from .media import TELEGRAM_MAX_BYTES, fit_video, probe
+from .models import LinkRef, Platform, Result
+from .pacing import Pacer
+from .urls import classify_url, resolve
+from .x import download_x
+
+RATE_LIMIT_PAUSE_S = 600
+
+
+def _register_cookie_values(cookies: Path) -> None:
+    try:
+        text = cookies.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    for line in text.splitlines():
+        fields = line.split("\t")
+        if len(fields) == 7 and not line.startswith("# "):
+            register_secret(fields[6].strip())
+
+
+async def download(url: str, workdir: Path, *, cookies: Path, pacer: Pacer, http: httpx.AsyncClient,
+                   ig=download_instagram, x=download_x, prober=probe, fitter=fit_video) -> Result:
+    ref = classify_url(url)
+    if ref is None:
+        raise Unsupported()
+
+    waited = False
+
+    async def instagram_gate() -> None:
+        nonlocal waited
+        remaining = pacer.paused_for()
+        if remaining > 0:
+            raise InstagramPaused(remaining)
+        if not cookies.is_file():
+            raise NoCookies()
+        _register_cookie_values(cookies)
+        if not waited:
+            await pacer.wait()
+            waited = True
+
+    if ref.platform is Platform.INSTAGRAM:
+        await instagram_gate()
+    if ref.kind == "short":
+        ref = await resolve(ref, http)
+        if ref.platform is Platform.INSTAGRAM:
+            await instagram_gate()
+
+    result = await _dispatch(ref, workdir, cookies, pacer, ig, x)
+    for item in result.items:
+        if item.kind == "image":
+            if item.size > TELEGRAM_MAX_BYTES:
+                raise TooLarge(item.size)
+            continue
+        info = await prober(item.path)
+        item.width, item.height, item.duration, item.has_audio = (
+            info.width, info.height, info.duration, info.has_audio)
+        if ref.platform is Platform.X and not info.has_audio:
+            item.kind = "gif"
+        if item.size > TELEGRAM_MAX_BYTES:
+            item.path = await fitter(item.path, info.duration or 0.0)
+            item.size = item.path.stat().st_size
+    return result
+
+
+async def _dispatch(ref: LinkRef, workdir: Path, cookies: Path, pacer: Pacer, ig, x) -> Result:
+    if ref.platform is Platform.X:
+        return await x(ref, workdir)
+    try:
+        return await ig(ref, workdir, cookies)
+    except RateLimited:
+        pacer.pause(RATE_LIMIT_PAUSE_S)
+        raise
