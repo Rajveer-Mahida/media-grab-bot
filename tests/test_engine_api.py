@@ -4,7 +4,9 @@ import httpx
 import pytest
 
 from bot.engine import download
-from bot.engine.errors import InstagramPaused, NoCookies, RateLimited, TooLarge, Unsupported, scrub
+from bot.engine.errors import (
+    Failed, InstagramPaused, LoginRequired, NoCookies, NotFound, RateLimited, TooLarge, Unsupported, scrub,
+)
 from bot.engine.media import TELEGRAM_MAX_BYTES, Probe
 from bot.engine.models import MediaItem, Result
 
@@ -36,15 +38,23 @@ class FakePacer:
 
 
 class Recorder:
-    def __init__(self, result=None, exc=None):
+    """Fake downloader. `outcomes` is consumed per call: an exception is raised, anything else returned."""
+
+    def __init__(self, result=None, exc=None, outcomes=None, leave_file=None):
         self.calls = []
-        self.result, self.exc = result, exc
+        self.outcomes = list(outcomes) if outcomes is not None else None
+        self.result, self.exc, self.leave_file = result, exc, leave_file
+        self.workdir_contents = []
 
     async def __call__(self, ref, workdir, *rest):
         self.calls.append((ref, rest))
-        if self.exc:
-            raise self.exc
-        return self.result
+        self.workdir_contents.append(sorted(p.name for p in workdir.iterdir()))
+        if self.leave_file:
+            (workdir / self.leave_file).write_bytes(b"partial")
+        outcome = self.outcomes.pop(0) if self.outcomes is not None else (self.exc or self.result)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
 
 
 def item(tmp_path, name="a.mp4", kind="video", size=100):
@@ -88,12 +98,73 @@ async def test_unsupported(tmp_path, cookies, http):
         await download("https://example.com/x", tmp_path, **kwargs(tmp_path, cookies, http, FakePacer()))
 
 
-async def test_instagram_without_cookie_file_raises_nocookies(tmp_path, http):
-    ig = Recorder()
+async def test_public_post_without_cookie_file_downloads_anonymously(tmp_path, http):
+    ig = Recorder(Result([item(tmp_path, "a.jpg", "image")], "u", IG_REEL))
+    r = await download(IG_REEL, tmp_path, **kwargs(tmp_path, tmp_path / "missing.txt", http, FakePacer(), ig=ig))
+    assert len(r.items) == 1
+    assert [rest for _, rest in ig.calls] == [(None,)]
+
+
+async def test_public_post_tries_anonymously_even_with_cookies(tmp_path, cookies, http):
+    ig = Recorder(Result([item(tmp_path, "a.jpg", "image")], "u", IG_REEL))
+    await download(IG_REEL, tmp_path, **kwargs(tmp_path, cookies, http, FakePacer(), ig=ig))
+    assert [rest for _, rest in ig.calls] == [(None,)]
+
+
+@pytest.mark.parametrize("first_error", [LoginRequired(), NotFound(), Failed("odd")])
+async def test_private_post_retries_with_cookies(tmp_path, cookies, http, first_error):
+    ok = Result([item(tmp_path, "a.jpg", "image")], "u", IG_REEL)
+    ig = Recorder(outcomes=[first_error, ok])
     pacer = FakePacer()
+    r = await download(IG_REEL, tmp_path, **kwargs(tmp_path, cookies, http, pacer, ig=ig))
+    assert r is ok
+    assert [rest for _, rest in ig.calls] == [(None,), (cookies,)]
+    assert pacer.waits == 2
+
+
+@pytest.mark.parametrize("first_error", [LoginRequired(), NotFound(), Failed("odd")])
+async def test_private_post_without_cookie_file_raises_nocookies(tmp_path, http, first_error):
+    ig = Recorder(exc=first_error)
     with pytest.raises(NoCookies):
-        await download(IG_REEL, tmp_path, **kwargs(tmp_path, tmp_path / "missing.txt", http, pacer, ig=ig))
+        await download(IG_REEL, tmp_path, **kwargs(tmp_path, tmp_path / "missing.txt", http, FakePacer(), ig=ig))
+    assert len(ig.calls) == 1
+
+
+async def test_story_without_cookie_file_raises_nocookies_without_trying(tmp_path, http):
+    ig, pacer = Recorder(), FakePacer()
+    with pytest.raises(NoCookies):
+        await download("https://www.instagram.com/stories/some.user/", tmp_path,
+                       **kwargs(tmp_path, tmp_path / "missing.txt", http, pacer, ig=ig))
     assert ig.calls == [] and pacer.waits == 0
+
+
+async def test_story_with_cookies_skips_anonymous_attempt(tmp_path, cookies, http):
+    ig = Recorder(Result([item(tmp_path, "a.jpg", "image")], "u", "s"))
+    await download("https://www.instagram.com/stories/some.user/", tmp_path, **kwargs(tmp_path, cookies, http, FakePacer(), ig=ig))
+    assert [rest for _, rest in ig.calls] == [(cookies,)]
+
+
+async def test_anonymous_ratelimit_pauses_and_does_not_retry(tmp_path, cookies, http):
+    ig, pacer = Recorder(exc=RateLimited()), FakePacer()
+    with pytest.raises(RateLimited):
+        await download(IG_REEL, tmp_path, **kwargs(tmp_path, cookies, http, pacer, ig=ig))
+    assert len(ig.calls) == 1 and pacer.pauses == [600]
+
+
+async def test_cookie_retry_starts_with_empty_workdir(tmp_path, cookies, http):
+    wd = tmp_path / "job-1"
+    wd.mkdir()
+    ok = Result([], "u", IG_REEL)
+    ig = Recorder(outcomes=[LoginRequired(), ok], leave_file="partial.jpg")
+    await download(IG_REEL, wd, **kwargs(tmp_path, cookies, http, FakePacer(), ig=ig))
+    assert ig.workdir_contents == [[], []]
+
+
+async def test_cookie_retry_login_error_is_login_required(tmp_path, cookies, http):
+    ig = Recorder(outcomes=[NotFound(), LoginRequired()])
+    with pytest.raises(LoginRequired) as e:
+        await download(IG_REEL, tmp_path, **kwargs(tmp_path, cookies, http, FakePacer(), ig=ig))
+    assert not isinstance(e.value, NoCookies)
 
 
 async def test_paused_instagram_fails_fast(tmp_path, cookies, http):
@@ -109,7 +180,7 @@ async def test_instagram_waits_once_including_share_resolution(tmp_path, cookies
     r = await download(IG_SHARE, tmp_path, **kwargs(tmp_path, cookies, http, pacer, ig=ig))
     assert pacer.waits == 1
     ref, rest = ig.calls[0]
-    assert ref.url == IG_REEL and rest == (cookies,)
+    assert ref.url == IG_REEL and rest == (None,)
     assert (r.items[0].width, r.items[0].height, r.items[0].duration) == (720, 1280, 12.5)
 
 

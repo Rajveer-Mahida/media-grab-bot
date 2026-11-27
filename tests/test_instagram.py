@@ -39,6 +39,13 @@ async def test_args_contain_safety_flags(wd, cookies):
     assert run.timeouts == [300]
 
 
+async def test_anonymous_run_has_no_cookie_flags(wd):
+    run = FakeRun(step(rc=1, stderr="something odd"), step(["001.mp4"], stdout="u\t{wd}/001.mp4\n"))
+    await download_instagram(REEL, wd, None, proc_run=run)
+    for call in run.calls:
+        assert "--cookies" not in call and "cookies-update=false" not in call
+
+
 async def test_carousel_order_and_author(wd, cookies):
     run = FakeRun(step(["1.jpg", "2.mp4", "3.jpg"],
                        stdout="{wd}/1.jpg\n{wd}/2.mp4\n# {wd}/3.jpg\n",

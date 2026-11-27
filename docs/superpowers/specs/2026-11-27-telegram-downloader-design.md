@@ -102,6 +102,11 @@ Owner decided:
 - Only the owner uses it, with the owner's own Instagram account.
 - Runs on the owner's PC.
 - `/cookies` upload via Telegram: kept (see below).
+- Instagram cookies are optional (owner decided after first run, 2026-11-27): every
+  Instagram link except stories is tried logged out first; only on failure is it retried
+  with the owner's cookies. No cookies file → "needs an Instagram login — send your
+  cookies.txt". Stories skip the logged-out attempt. Rate limiting never triggers the
+  cookie retry.
 - X: no login, no third-party fallback (fxtwitter/vxtwitter etc. are not
   contacted; such links are accepted as input only and rewritten to x.com).
 

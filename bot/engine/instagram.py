@@ -13,7 +13,7 @@ from .tools import (
 _AUTHOR_KEYS = [("username",), ("owner_username",)]
 
 
-async def download_instagram(ref: LinkRef, workdir: Path, cookies: Path,
+async def download_instagram(ref: LinkRef, workdir: Path, cookies: Path | None,
                              proc_run: ProcRunner = run) -> Result:
     res = await proc_run(gallery_dl_args(ref.url, workdir, cookies), DOWNLOAD_TIMEOUT)
     items = parse_gallery_dl(res.stdout, workdir)

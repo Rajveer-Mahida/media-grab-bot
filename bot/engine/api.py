@@ -5,7 +5,9 @@ from pathlib import Path
 
 import httpx
 
-from .errors import InstagramPaused, NoCookies, RateLimited, TooLarge, Unsupported, register_secret
+import shutil
+
+from .errors import DownloadError, InstagramPaused, NoCookies, RateLimited, TooLarge, Unsupported, register_secret
 from .instagram import download_instagram
 from .media import TELEGRAM_MAX_BYTES, fit_video, probe
 from .models import LinkRef, Platform, Result
@@ -40,14 +42,15 @@ async def download(url: str, workdir: Path, *, cookies: Path, pacer: Pacer, http
         remaining = pacer.paused_for()
         if remaining > 0:
             raise InstagramPaused(remaining)
-        if not cookies.is_file():
-            raise NoCookies()
-        _register_cookie_values(cookies)
+        if cookies.is_file():
+            _register_cookie_values(cookies)
         if not waited:
             await pacer.wait()
             waited = True
 
     if ref.platform is Platform.INSTAGRAM:
+        if ref.kind == "story" and not cookies.is_file():
+            raise NoCookies()
         await instagram_gate()
     if ref.kind == "short":
         ref = await resolve(ref, http)
@@ -75,7 +78,34 @@ async def _dispatch(ref: LinkRef, workdir: Path, cookies: Path, pacer: Pacer, ig
     if ref.platform is Platform.X:
         return await x(ref, workdir)
     try:
-        return await ig(ref, workdir, cookies)
+        return await _instagram(ref, workdir, cookies, pacer, ig)
     except RateLimited:
         pacer.pause(RATE_LIMIT_PAUSE_S)
         raise
+
+
+async def _instagram(ref: LinkRef, workdir: Path, cookies: Path, pacer: Pacer, ig) -> Result:
+    """Public content is tried logged out first (no account risk); the owner's cookies are
+    used only when that fails. Stories always need a login."""
+    if ref.kind == "story":
+        if not cookies.is_file():
+            raise NoCookies()
+        return await ig(ref, workdir, cookies)
+    try:
+        return await ig(ref, workdir, None)
+    except RateLimited:
+        raise
+    except DownloadError:
+        if not cookies.is_file():
+            raise NoCookies() from None
+    _empty_dir(workdir)
+    await pacer.wait()
+    return await ig(ref, workdir, cookies)
+
+
+def _empty_dir(path: Path) -> None:
+    for child in path.iterdir():
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()

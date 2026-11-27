@@ -64,7 +64,8 @@ def test_failed_reason_is_last_error_line_scrubbed_and_truncated():
 def test_user_messages_exact():
     assert InstagramPaused(125).user_message == "Instagram paused for ~3 more min after rate-limiting; send again later"
     assert TooLarge(73_400_320).user_message == "File is 70 MB — over Telegram's 50 MB limit"
-    assert NoCookies().user_message == "No Instagram cookies file — send one with /cookies"
+    assert NoCookies().user_message == ("This needs an Instagram login (private account, story, or blocked "
+                                        "logged out) — send your cookies.txt to the bot")
     assert LoginRequired().user_message == "Instagram login expired — refresh cookies"
     assert NotFound().user_message == "Post not found or not visible to your account"
     assert RateLimited().user_message == "Instagram is rate-limiting; try again in a while"

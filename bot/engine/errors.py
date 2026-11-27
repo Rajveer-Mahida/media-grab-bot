@@ -43,7 +43,8 @@ class LoginRequired(DownloadError):
 
 
 class NoCookies(LoginRequired):
-    message = "No Instagram cookies file — send one with /cookies"
+    message = ("This needs an Instagram login (private account, story, or blocked logged out) "
+               "— send your cookies.txt to the bot")
 
 
 class NotFound(DownloadError):

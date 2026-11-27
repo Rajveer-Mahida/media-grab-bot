@@ -16,7 +16,9 @@ You need Linux, [uv](https://docs.astral.sh/uv/) and `ffmpeg` (`sudo apt install
 
 1. **Create a bot.** In Telegram, message @BotFather and send `/newbot`. Copy the token it gives you.
 2. **Get your Telegram user ID.** Message @userinfobot. It replies with your numeric ID.
-3. **Export Instagram cookies.** In a desktop browser where you're logged into Instagram,
+3. **(Optional) Export Instagram cookies.** Public reels and posts download without them.
+   Cookies are needed for stories, private accounts you follow, and posts Instagram
+   won't show logged out. In a desktop browser where you're logged into Instagram,
    install the "Get cookies.txt LOCALLY" extension. Open instagram.com and export the cookies.
    Save the file as `cookies/instagram.cookies.txt` in this folder.
    - This is your Instagram login, so treat it like a password.
@@ -44,6 +46,10 @@ Instagram account for the cookies is safer.
 - `/hq on` sends images as original files instead of compressed photos. `/hq off` switches back.
 - Sending a cookies.txt file is always recognised: the bot saves it and deletes the message, even without the `/cookies` caption.
 - `/status` shows the queue, tool versions and how old your cookies are.
+
+On Instagram the bot always tries **without** your login first, so public posts never touch
+your account. Only if that fails does it retry with your cookies. With no cookies file, you get
+a "needs an Instagram login" reply. Stories always use cookies.
 
 The bot works on X without logging in. Some tweets, such as age-restricted ones, need an
 X login, and the bot will say so.
