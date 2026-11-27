@@ -152,3 +152,10 @@ async def test_login_error_on_both_tools_is_login_required(wd):
                   step(rc=1, stderr="ERROR: [Instagram] X: Requested content is not available, rate-limit reached or login required"))
     with pytest.raises(LoginRequired):
         await download_instagram(REEL, wd, None, proc_run=run)
+
+
+async def test_ytdlp_fallback_caption_uses_username_not_numeric_id(wd):
+    run = FakeRun(step(rc=4, stderr=GALLERY_401), step(["001.mp4"], stdout="mavgpt\t{wd}/001.mp4\n"))
+    await download_instagram(REEL, wd, None, proc_run=run)
+    y = run.calls[1]
+    assert y[y.index("--print") + 1] == "after_move:%(channel,uploader_id)s\t%(filepath)s"

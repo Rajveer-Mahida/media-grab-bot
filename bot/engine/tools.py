@@ -26,15 +26,17 @@ YTDLP_X_EXTRACTORS = "twitter(:.+)?"
 YTDLP_INSTAGRAM_EXTRACTORS = "instagram(:.+)?"
 
 
-def ytdlp_args(url: str, workdir: Path, extractors: str, cookies: Path | None = None) -> list[str]:
-    """`extractors` limits yt-dlp to one site, so links inside a post are never followed."""
+def ytdlp_args(url: str, workdir: Path, extractors: str, cookies: Path | None = None,
+               author_field: str = "uploader_id") -> list[str]:
+    """`extractors` limits yt-dlp to one site, so links inside a post are never followed.
+    `author_field` is the yt-dlp field (with fallbacks) used for the caption's @handle."""
     args = [sys.executable, "-m", "yt_dlp", "--ignore-config", "--no-progress", "--use-extractors", extractors]
     if cookies is not None:
         args += ["--cookies", str(cookies)]
     args += [
         "-f", YTDLP_FORMAT,
         "-o", str(workdir / "%(autonumber)03d.%(ext)s"),
-        "--print", "after_move:%(uploader_id)s\t%(filepath)s",
+        "--print", f"after_move:%({author_field})s\t%(filepath)s",
         "--no-simulate", "--merge-output-format", "mp4", url,
     ]
     return args

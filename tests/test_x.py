@@ -95,3 +95,10 @@ async def test_no_suitable_extractor_falls_back_to_images(wd):
                   step(["1.jpg"], stdout="{wd}/1.jpg\n"))
     r = await download_x(STATUS, wd, proc_run=run)
     assert len(r.items) == 1
+
+
+async def test_x_caption_uses_handle(wd):
+    run = FakeRun(step(["001.mp4"], stdout="someone\t{wd}/001.mp4\n"))
+    await download_x(STATUS, wd, proc_run=run)
+    a = run.calls[0]
+    assert a[a.index("--print") + 1] == "after_move:%(uploader_id)s\t%(filepath)s"

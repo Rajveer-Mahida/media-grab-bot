@@ -27,7 +27,9 @@ async def download_instagram(ref: LinkRef, workdir: Path, cookies: Path | None,
     if not (isinstance(err, (Failed, LoginRequired)) and ref.kind in _YTDLP_KINDS):
         raise err
 
-    res = await proc_run(ytdlp_args(ref.url, workdir, YTDLP_INSTAGRAM_EXTRACTORS, cookies), DOWNLOAD_TIMEOUT)
+    # Instagram's uploader_id is a numeric id; channel holds the @username
+    args = ytdlp_args(ref.url, workdir, YTDLP_INSTAGRAM_EXTRACTORS, cookies, author_field="channel,uploader_id")
+    res = await proc_run(args, DOWNLOAD_TIMEOUT)
     items, author = parse_ytdlp(res.stdout, workdir)
     if items:
         return Result(items, author, ref.url)
