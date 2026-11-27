@@ -36,9 +36,13 @@ class JobQueue:
         self._queue: asyncio.Queue[Job] = asyncio.Queue()
         self._busy = False
 
+    def jobs_ahead(self) -> int:
+        """How many jobs a newly submitted job would wait behind."""
+        return self._queue.qsize() + (1 if self._busy else 0)
+
     def submit(self, job: Job) -> int:
         """Queue `job`; return how many jobs are ahead of it."""
-        ahead = self._queue.qsize() + (1 if self._busy else 0)
+        ahead = self.jobs_ahead()
         self._queue.put_nowait(job)
         return ahead
 
