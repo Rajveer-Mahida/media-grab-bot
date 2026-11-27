@@ -76,10 +76,10 @@ async def test_zero_files_is_notfound(wd, cookies):
         await download_instagram(POST, wd, cookies, proc_run=run)
 
 
-async def test_error_is_classified(wd, cookies):
+async def test_story_login_error_is_classified(wd, cookies):
     run = FakeRun(step(rc=1, stderr="[instagram][error] HTTP redirect to login page (https://www.instagram.com/accounts/login/)"))
     with pytest.raises(LoginRequired):
-        await download_instagram(POST, wd, cookies, proc_run=run)
+        await download_instagram(classify_url("https://www.instagram.com/stories/u/"), wd, cookies, proc_run=run)
 
 
 async def test_ratelimit_is_classified(wd, cookies):
@@ -99,16 +99,17 @@ async def test_reel_falls_back_to_ytdlp_on_generic_failure(wd, cookies):
     assert [i.kind for i in r.items] == ["video"] and r.author == "some.user"
 
 
-async def test_post_does_not_fall_back(wd, cookies):
+async def test_story_does_not_fall_back(wd, cookies):
+    story = classify_url("https://www.instagram.com/stories/some.user/")
     run = FakeRun(step(rc=1, stderr="[instagram][error] something odd"))
     with pytest.raises(Failed):
-        await download_instagram(POST, wd, cookies, proc_run=run)
+        await download_instagram(story, wd, cookies, proc_run=run)
     assert len(run.calls) == 1
 
 
-async def test_no_fallback_on_login_error(wd, cookies):
-    run = FakeRun(step(rc=1, stderr="login required"))
-    with pytest.raises(LoginRequired):
+async def test_no_fallback_on_not_found(wd, cookies):
+    run = FakeRun(step(rc=1, stderr="[instagram][error] HTTP Error 404: Not Found"))
+    with pytest.raises(NotFound):
         await download_instagram(REEL, wd, cookies, proc_run=run)
     assert len(run.calls) == 1
 
@@ -132,3 +133,22 @@ async def test_ytdlp_fallback_restricted_to_instagram_extractors(wd, cookies):
     await download_instagram(REEL, wd, cookies, proc_run=run)
     y = run.calls[1]
     assert y[y.index("--use-extractors") + 1] == "instagram(:.+)?"
+
+
+GALLERY_401 = "[instagram][error] HttpError: '401 Unauthorized' for 'https://www.instagram.com/api/v1/media/3910068754956221925/info/'"
+
+
+@pytest.mark.parametrize("ref", [REEL, POST])
+async def test_login_error_falls_back_to_ytdlp(wd, ref):
+    # real-world: logged out, gallery-dl gets 401 but yt-dlp can still fetch public reels
+    run = FakeRun(step(rc=4, stderr=GALLERY_401), step(["001.mp4"], stdout="u\t{wd}/001.mp4\n"))
+    r = await download_instagram(ref, wd, None, proc_run=run)
+    assert [i.kind for i in r.items] == ["video"]
+    assert run.calls[1][2] == "yt_dlp"
+
+
+async def test_login_error_on_both_tools_is_login_required(wd):
+    run = FakeRun(step(rc=4, stderr=GALLERY_401),
+                  step(rc=1, stderr="ERROR: [Instagram] X: Requested content is not available, rate-limit reached or login required"))
+    with pytest.raises(LoginRequired):
+        await download_instagram(REEL, wd, None, proc_run=run)

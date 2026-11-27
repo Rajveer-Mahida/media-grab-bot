@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .errors import Failed, NotFound, classify
+from .errors import Failed, LoginRequired, NotFound, classify
 from .models import LinkRef, Platform, Result
 from .proc import ProcRunner, run
 from .tools import (
@@ -11,6 +11,7 @@ from .tools import (
 )
 
 _AUTHOR_KEYS = [("username",), ("owner_username",)]
+_YTDLP_KINDS = ("reel", "tv", "post")
 
 
 async def download_instagram(ref: LinkRef, workdir: Path, cookies: Path | None,
@@ -22,7 +23,8 @@ async def download_instagram(ref: LinkRef, workdir: Path, cookies: Path | None,
     if res.returncode == 0:
         raise NotFound()
     err = classify(Platform.INSTAGRAM, res.stderr)
-    if not (isinstance(err, Failed) and ref.kind in ("reel", "tv")):
+    # Logged out, gallery-dl often gets 401 where yt-dlp still works for public videos.
+    if not (isinstance(err, (Failed, LoginRequired)) and ref.kind in _YTDLP_KINDS):
         raise err
 
     res = await proc_run(ytdlp_args(ref.url, workdir, YTDLP_INSTAGRAM_EXTRACTORS, cookies), DOWNLOAD_TIMEOUT)
