@@ -1,0 +1,37 @@
+[Unit]
+Description=media-grab-bot (personal Instagram/X Telegram downloader)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mediabot
+Group=mediabot
+WorkingDirectory=/opt/media-grab-bot/app
+ExecStart=/opt/media-grab-bot/app/.venv/bin/python -m bot
+Restart=on-failure
+RestartSec=10
+
+# This host also runs a production app: hard caps so the bot can never starve it.
+MemoryMax=400M
+MemorySwapMax=0
+CPUQuota=50%
+TasksMax=64
+Nice=10
+IOSchedulingClass=idle
+
+# Hardening: the bot can only write inside its own folder.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/media-grab-bot
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
