@@ -1,0 +1,15 @@
+[Unit]
+Description=Personal Instagram/X media downloader (Telegram bot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Projects/Personal/media-grab-bot
+ExecStart=%h/Projects/Personal/media-grab-bot/.venv/bin/python -m bot
+Restart=on-failure
+RestartSec=10
+UMask=0077
+
+[Install]
+WantedBy=default.target
