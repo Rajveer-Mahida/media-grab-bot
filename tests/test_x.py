@@ -101,4 +101,21 @@ async def test_x_caption_uses_handle(wd):
     run = FakeRun(step(["001.mp4"], stdout="someone\t{wd}/001.mp4\n"))
     await download_x(STATUS, wd, proc_run=run)
     a = run.calls[0]
-    assert a[a.index("--print") + 1] == "after_move:%(uploader_id)s\t%(filepath)s"
+    assert a[a.index("--print") + 1] == "after_move:%(uploader_id)s\t%(description)j\t%(filepath)s"
+
+
+async def test_tweet_text_from_ytdlp(wd):
+    run = FakeRun(step(["001.mp4"], stdout='someone\t"Look at this https://t.co/x"\t{wd}/001.mp4\n'))
+    assert (await download_x(STATUS, wd, proc_run=run)).text == "Look at this https://t.co/x"
+
+
+async def test_tweet_without_text_from_ytdlp(wd):
+    run = FakeRun(step(["001.mp4"], stdout="someone\tNA\t{wd}/001.mp4\n"))
+    r = await download_x(STATUS, wd, proc_run=run)
+    assert r.text is None and len(r.items) == 1
+
+
+async def test_image_tweet_text_from_gallery_dl_content(wd):
+    run = FakeRun(step(rc=1, stderr=NO_VIDEO),
+                  step(["1.jpg"], stdout="{wd}/1.jpg\n", metadata={"author": {"name": "someone"}, "content": "pic text"}))
+    assert (await download_x(STATUS, wd, proc_run=run)).text == "pic text"

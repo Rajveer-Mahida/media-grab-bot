@@ -144,8 +144,10 @@ Designer's calls (owner may override while reviewing):
   - Carousel / multiple stories / multi-image tweet → `sendMediaGroup` in
     chunks of 10.
   - GIFs from X (delivered as MP4) → `sendAnimation`.
-  - Caption on the first item: author handle + original link. No original
-    post text (keeps chat clean); owner can override.
+  - Caption on the first item: author handle, the post's own text (caption /
+    tweet text), and the original link (owner decided 2026-11-27 to include the
+    post text). Over 1024 chars → media gets handle + link and the full text
+    follows as separate message(s) of ≤4096 chars.
 - **Quality vs 50 MB:** request best quality. If a video exceeds 50 MB, retry
   with yt-dlp format selection capped under 50 MB; if no such format exists,
   re-encode with ffmpeg to fit (target bitrate from duration). If still too big,

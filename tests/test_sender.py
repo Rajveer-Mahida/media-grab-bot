@@ -129,3 +129,43 @@ async def test_execute_document_group(files):
     await execute(bot, 7, [SendGroup("document", [files("image"), files("image", 1)], None)])
     media = bot.send_media_group.await_args.kwargs["media"]
     assert all(isinstance(m, InputMediaDocument) for m in media)
+
+
+from bot.sender import CAPTION_MAX, SendText
+
+
+def RT(items, text, author="u"):
+    return Result(items, author, "https://x", text=text)
+
+
+def test_caption_includes_post_text():
+    assert caption_for(RT([], "Hello\nworld")) == "@u\n\nHello\nworld\n\nhttps://x"
+    assert caption_for(RT([], "Hi", author=None)) == "Hi\n\nhttps://x"
+
+
+def test_short_text_goes_in_media_caption():
+    v = mk("video")
+    assert plan_sends(RT([v], "Hi"), hq=False) == [SendSingle("video", v, "@u\n\nHi\n\nhttps://x")]
+
+
+def test_long_text_sent_as_separate_message():
+    v = mk("video")
+    text = "x" * 1100
+    assert plan_sends(RT([v], text), hq=False) == [SendSingle("video", v, CAP), SendText(text)]
+
+
+def test_very_long_text_split_into_4096_chunks():
+    text = "y" * 9000
+    ops = plan_sends(RT([mk("video")], text), hq=False)
+    texts = [op.text for op in ops if isinstance(op, SendText)]
+    assert [len(t) for t in texts] == [4096, 4096, 808] and "".join(texts) == text
+
+
+def test_caption_max_is_telegram_limit():
+    assert CAPTION_MAX == 1024
+
+
+async def test_execute_sends_text():
+    bot = AsyncMock()
+    await execute(bot, 3, [SendText("hello")])
+    bot.send_message.assert_awaited_once_with(chat_id=3, text="hello")

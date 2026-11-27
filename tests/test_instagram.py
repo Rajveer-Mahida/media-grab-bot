@@ -158,4 +158,22 @@ async def test_ytdlp_fallback_caption_uses_username_not_numeric_id(wd):
     run = FakeRun(step(rc=4, stderr=GALLERY_401), step(["001.mp4"], stdout="mavgpt\t{wd}/001.mp4\n"))
     await download_instagram(REEL, wd, None, proc_run=run)
     y = run.calls[1]
-    assert y[y.index("--print") + 1] == "after_move:%(channel,uploader_id)s\t%(filepath)s"
+    assert y[y.index("--print") + 1] == "after_move:%(channel,uploader_id)s\t%(description)j\t%(filepath)s"
+
+
+async def test_post_text_from_gallery_dl_metadata(wd, cookies):
+    run = FakeRun(step(["1.jpg"], stdout="{wd}/1.jpg\n", metadata={"username": "u", "description": "Hello\nworld 👋"}))
+    r = await download_instagram(POST, wd, cookies, proc_run=run)
+    assert r.text == "Hello\nworld 👋"
+
+
+async def test_post_text_from_ytdlp_description(wd):
+    run = FakeRun(step(rc=4, stderr=GALLERY_401),
+                  step(["001.mp4"], stdout='mavgpt\t"Comment \\u201cTools\\u201d\\n\\nBest AI tools"\t{wd}/001.mp4\n'))
+    r = await download_instagram(REEL, wd, None, proc_run=run)
+    assert r.text == "Comment “Tools”\n\nBest AI tools" and r.author == "mavgpt"
+
+
+async def test_empty_or_missing_text_is_none(wd, cookies):
+    run = FakeRun(step(["1.jpg"], stdout="{wd}/1.jpg\n", metadata={"username": "u", "description": ""}))
+    assert (await download_instagram(POST, wd, cookies, proc_run=run)).text is None

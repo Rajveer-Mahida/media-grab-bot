@@ -36,7 +36,7 @@ def ytdlp_args(url: str, workdir: Path, extractors: str, cookies: Path | None = 
     args += [
         "-f", YTDLP_FORMAT,
         "-o", str(workdir / "%(autonumber)03d.%(ext)s"),
-        "--print", f"after_move:%({author_field})s\t%(filepath)s",
+        "--print", f"after_move:%({author_field})s\t%(description)j\t%(filepath)s",
         "--no-simulate", "--merge-output-format", "mp4", url,
     ]
     return args
@@ -74,20 +74,39 @@ def parse_gallery_dl(stdout: str, workdir: Path) -> list[MediaItem]:
     return collect_files(stdout.splitlines(), workdir)
 
 
-def parse_ytdlp(stdout: str, workdir: Path) -> tuple[list[MediaItem], str | None]:
+def _clean_text(value) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _decode_description(field: str) -> str | None:
+    """yt-dlp prints the description JSON-encoded (%(description)j) so it stays on one line."""
+    try:
+        return _clean_text(json.loads(field))
+    except ValueError:
+        return None
+
+
+def parse_ytdlp(stdout: str, workdir: Path) -> tuple[list[MediaItem], str | None, str | None]:
+    """Parse `author<TAB>description-json<TAB>path` lines into (items, author, text)."""
     author: str | None = None
+    text: str | None = None
     paths: list[str] = []
     for line in stdout.splitlines():
-        uploader, sep, path = line.partition("\t")
-        if not sep:
+        fields = line.split("\t")
+        if len(fields) < 2:
             continue
-        if author is None and uploader.strip() not in ("", "NA"):
-            author = uploader.strip()
+        uploader, path = fields[0].strip(), fields[-1]
+        if author is None and uploader not in ("", "NA"):
+            author = uploader
+        if text is None and len(fields) >= 3:
+            text = _decode_description(fields[1])
         paths.append(path)
-    return collect_files(paths, workdir), author
+    return collect_files(paths, workdir), author, text
 
 
-def read_metadata_author(workdir: Path, keys: list[tuple[str, ...]]) -> str | None:
+def read_metadata_value(workdir: Path, keys: list[tuple[str, ...]]) -> str | None:
     """First non-empty value at any of the key paths, from gallery-dl metadata JSON files."""
     for meta in sorted(workdir.glob("*.json")):
         try:
@@ -98,6 +117,6 @@ def read_metadata_author(workdir: Path, keys: list[tuple[str, ...]]) -> str | No
             value = data
             for key in key_path:
                 value = value.get(key) if isinstance(value, dict) else None
-            if isinstance(value, str) and value:
-                return value
+            if _clean_text(value):
+                return _clean_text(value)
     return None

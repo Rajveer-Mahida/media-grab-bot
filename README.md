@@ -43,6 +43,8 @@ Instagram account for the cookies is safer.
 - On your phone, open the Instagram or X app and tap **Share → Telegram → your bot**,
   or paste a link into the chat.
 - Several links in one message are handled one after another.
+- The media comes with the post's own caption (or tweet text), the @author and the link.
+  Captions longer than Telegram's 1024-character limit follow as a separate message.
 - `/hq on` sends images as original files instead of compressed photos. `/hq off` switches back.
 - Sending a cookies.txt file is always recognised: the bot saves it and deletes the message, even without the `/cookies` caption.
 - `/status` shows the queue, tool versions and how old your cookies are.

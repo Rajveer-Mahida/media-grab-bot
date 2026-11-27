@@ -12,6 +12,8 @@ from .engine.media import PHOTO_MAX_BYTES
 from .engine.models import MediaItem, Result
 
 GROUP_MAX = 10
+CAPTION_MAX = 1024  # Telegram limit for media captions
+MESSAGE_MAX = 4096  # Telegram limit for text messages
 
 
 @dataclass
@@ -28,13 +30,27 @@ class SendGroup:
     caption: str | None
 
 
-SendOp = SendSingle | SendGroup
+@dataclass
+class SendText:
+    text: str
 
 
-def caption_for(result: Result) -> str:
+SendOp = SendSingle | SendGroup | SendText
+
+
+def _short_caption(result: Result) -> str:
     if result.author:
         return f"@{result.author}\n{result.source_url}"
     return result.source_url
+
+
+def caption_for(result: Result) -> str:
+    """@author, the post's own text, and the link — blank lines between."""
+    if not result.text:
+        return _short_caption(result)
+    parts = [f"@{result.author}"] if result.author else []
+    parts += [result.text, result.source_url]
+    return "\n\n".join(parts)
 
 
 def _chunks(items: list[MediaItem]) -> list[list[MediaItem]]:
@@ -64,7 +80,13 @@ def plan_sends(result: Result, hq: bool) -> list[SendOp]:
     ops.extend(SendSingle("animation", item, None) for item in animations)
 
     if ops:
-        ops[0] = dataclasses.replace(ops[0], caption=caption_for(result))
+        full = caption_for(result)
+        if len(full) <= CAPTION_MAX:
+            ops[0] = dataclasses.replace(ops[0], caption=full)
+        else:
+            ops[0] = dataclasses.replace(ops[0], caption=_short_caption(result))
+            text = result.text or ""
+            ops.extend(SendText(text[i:i + MESSAGE_MAX]) for i in range(0, len(text), MESSAGE_MAX))
     return ops
 
 
@@ -83,6 +105,9 @@ def _input_media(item: MediaItem, kind: str, fh, caption: str | None):
 
 async def execute(bot: Bot, chat_id: int, ops: list[SendOp]) -> None:
     for op in ops:
+        if isinstance(op, SendText):
+            await bot.send_message(chat_id=chat_id, text=op.text)
+            continue
         with contextlib.ExitStack() as stack:
             if isinstance(op, SendGroup):
                 media = [

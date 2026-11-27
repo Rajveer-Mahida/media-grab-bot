@@ -41,3 +41,4 @@ class Result:
     items: list[MediaItem]
     author: str | None
     source_url: str
+    text: str | None = None  # the post's own caption / tweet text, if any
