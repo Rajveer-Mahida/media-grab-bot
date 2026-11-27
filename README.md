@@ -83,3 +83,22 @@ uv run pytest                                 # run tests
 ```
 
 Logs never contain your bot token or cookie values.
+
+## Running on a server instead of your PC
+
+```bash
+scripts/deploy.sh <ssh-host>     # e.g. scripts/deploy.sh gstride
+```
+
+The first run prepares the server. It installs ffmpeg without restarting other services,
+creates an unprivileged `mediabot` user in `/opt/media-grab-bot`, and installs uv. It then
+copies your `.env` (and cookies, if you have them) and starts a systemd service. That service
+is capped at **400 MB RAM and half a CPU core** at low priority, so it can't slow other apps on
+the same server. Later runs just ship the latest commit and restart the bot.
+
+- Logs: `ssh <host> journalctl -u media-grab-bot -f`
+- Update downloaders: run `scripts/update.sh` locally, commit `uv.lock`, then `scripts/deploy.sh <host>`
+- Remove completely: `ssh <host> 'systemctl disable --now media-grab-bot; rm /etc/systemd/system/media-grab-bot.service; userdel -r mediabot'`
+
+Only run one copy of the bot at a time (PC **or** server). Two copies polling with the same
+token conflict.
