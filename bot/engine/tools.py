@@ -16,12 +16,19 @@ def gallery_dl_args(url: str, workdir: Path, cookies: Path | None = None) -> lis
     args = [sys.executable, "-m", "gallery_dl", "--config-ignore", "--no-input"]
     if cookies is not None:
         args += ["--cookies", str(cookies), "-o", "cookies-update=false"]
-    args += ["-D", str(workdir), "--write-metadata", "-o", "sleep-request=5.0-8.0", url]
+    # sleep-429=0 + retries=1: fail fast on rate limiting instead of retrying for minutes
+    args += ["-D", str(workdir), "--write-metadata", "-o", "sleep-request=5.0-8.0",
+             "-o", "sleep-429=0", "-o", "retries=1", url]
     return args
 
 
-def ytdlp_args(url: str, workdir: Path, cookies: Path | None = None) -> list[str]:
-    args = [sys.executable, "-m", "yt_dlp", "--ignore-config", "--no-progress"]
+YTDLP_X_EXTRACTORS = "twitter(:.+)?"
+YTDLP_INSTAGRAM_EXTRACTORS = "instagram(:.+)?"
+
+
+def ytdlp_args(url: str, workdir: Path, extractors: str, cookies: Path | None = None) -> list[str]:
+    """`extractors` limits yt-dlp to one site, so links inside a post are never followed."""
+    args = [sys.executable, "-m", "yt_dlp", "--ignore-config", "--no-progress", "--use-extractors", extractors]
     if cookies is not None:
         args += ["--cookies", str(cookies)]
     args += [

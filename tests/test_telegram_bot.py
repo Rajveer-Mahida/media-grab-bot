@@ -15,7 +15,8 @@ from telegram.ext import ApplicationHandlerStop, TypeHandler
 from bot.config import Config
 from bot.jobs import JobQueue
 from bot.telegram_bot import (
-    build_application, cmd_hq, cmd_start, gate, handle_cookies_document, handle_text, is_allowed, status_text,
+    build_application, cmd_hq, cmd_start, gate, handle_document, handle_text, is_allowed,
+    status_text,
 )
 
 VALID = b".instagram.com\tTRUE\t/\tTRUE\t1999999999\tsessionid\t123%3Aabc\n"
@@ -70,7 +71,7 @@ async def test_gate_allows_owner(config):
 async def test_cookies_valid_writes_deletes_replies(config):
     update = make_update(document=make_document(VALID), caption="/cookies")
     ctx = make_context(config)
-    await handle_cookies_document(update, ctx)
+    await handle_document(update, ctx)
     assert config.instagram_cookies.read_bytes() == VALID
     assert stat.S_IMODE(config.instagram_cookies.stat().st_mode) == 0o600
     update.effective_message.delete.assert_awaited_once()
@@ -80,7 +81,7 @@ async def test_cookies_valid_writes_deletes_replies(config):
 async def test_cookies_invalid_still_deletes(config):
     update = make_update(document=make_document(b"garbage"), caption="/cookies")
     ctx = make_context(config)
-    await handle_cookies_document(update, ctx)
+    await handle_document(update, ctx)
     assert not config.instagram_cookies.exists()
     update.effective_message.delete.assert_awaited_once()
     ctx.bot.send_message.assert_awaited_once_with(chat_id=99, text="not a valid Instagram cookies file")
@@ -90,7 +91,7 @@ async def test_cookies_oversize_not_downloaded(config):
     doc = make_document(VALID, size=2_000_000)
     update = make_update(document=doc, caption="/cookies")
     ctx = make_context(config)
-    await handle_cookies_document(update, ctx)
+    await handle_document(update, ctx)
     doc.get_file.assert_not_awaited()
     update.effective_message.delete.assert_awaited_once()
     assert ctx.bot.send_message.await_args.kwargs["text"] == "not a valid Instagram cookies file"
@@ -100,7 +101,7 @@ async def test_cookies_delete_failure_mentions_manual(config):
     update = make_update(document=make_document(VALID), caption="/cookies")
     update.effective_message.delete.side_effect = BadRequest("can't delete")
     ctx = make_context(config)
-    await handle_cookies_document(update, ctx)
+    await handle_document(update, ctx)
     assert ctx.bot.send_message.await_args.kwargs["text"] == \
         "cookies updated — couldn't delete your message, delete it manually"
 
@@ -165,3 +166,48 @@ def test_main_exits_2_on_missing_config(tmp_path):
     r = subprocess.run([sys.executable, "-m", "bot"], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30)
     assert r.returncode == 2
     assert "BOT_TOKEN" in r.stderr
+
+
+async def test_document_without_caption_that_is_cookies_is_saved_and_deleted(config):
+    update = make_update(document=make_document(VALID), caption=None)
+    ctx = make_context(config)
+    await handle_document(update, ctx)
+    assert config.instagram_cookies.read_bytes() == VALID
+    update.effective_message.delete.assert_awaited_once()
+    ctx.bot.send_message.assert_awaited_once_with(chat_id=99, text="cookies updated")
+
+
+async def test_other_document_without_caption_is_kept_with_hint(config):
+    update = make_update(document=make_document(b"just a pdf"), caption=None)
+    ctx = make_context(config)
+    await handle_document(update, ctx)
+    assert not config.instagram_cookies.exists()
+    update.effective_message.delete.assert_not_awaited()
+    assert "links" in update.effective_message.reply_text.await_args.args[0]
+
+
+async def test_document_with_cookies_caption_invalid_is_deleted(config):
+    update = make_update(document=make_document(b"garbage"), caption="/cookies")
+    ctx = make_context(config)
+    await handle_document(update, ctx)
+    update.effective_message.delete.assert_awaited_once()
+
+
+def test_main_scrubs_token_from_startup_failure(monkeypatch, capsys, tmp_path):
+    import bot.__main__ as entry
+    from telegram.error import InvalidToken
+    token = "123456789:AAHstartupSECRETstartupSECRETstart"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BOT_TOKEN", token)
+    monkeypatch.setenv("ALLOWED_USER_IDS", "1")
+    monkeypatch.setenv("DOWNLOAD_DIR", str(tmp_path / "dl"))
+
+    def boom(config):
+        raise InvalidToken(f"The token `{token}` was rejected by the server.")
+    monkeypatch.setattr(entry, "build_application", boom)
+    with pytest.raises(SystemExit) as e:
+        entry.main()
+    out = capsys.readouterr()
+    assert e.value.code == 1
+    assert "startupSECRET" not in out.out + out.err
+    assert "rejected" in out.out + out.err

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import timedelta
 from importlib.metadata import PackageNotFoundError, version
 
@@ -22,6 +23,9 @@ from .engine.urls import extract_links
 from .jobs import DOWNLOADING, Job, JobQueue, process_job
 
 log = logging.getLogger(__name__)
+
+_COOKIES_CMD = re.compile(r"^/cookies\b")
+FILE_HINT = "Send me links as text. To update Instagram cookies, send cookies.txt with caption /cookies"
 
 HELP = (
     "Send me an Instagram or X link (or share one to me) and I'll send the media back.\n\n"
@@ -94,10 +98,13 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     ))
 
 
-async def handle_cookies_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Any file from the owner: a cookies file is stored and its message deleted, with or
+    without the /cookies caption, so a session file never stays in the chat."""
     config: Config = context.bot_data["config"]
     message = update.effective_message
     document = message.document
+    is_cookies_cmd = bool(_COOKIES_CMD.match(message.caption or ""))
     valid = False
     try:
         if document.file_size is not None and document.file_size <= MAX_COOKIE_FILE_BYTES:
@@ -107,11 +114,16 @@ async def handle_cookies_document(update: Update, context: ContextTypes.DEFAULT_
                 write_cookies_atomic(config.instagram_cookies, data)
                 valid = True
     finally:
-        try:
-            await message.delete()
-            deleted = True
-        except TelegramError:
-            deleted = False
+        deleted = False
+        if is_cookies_cmd or valid:
+            try:
+                await message.delete()
+                deleted = True
+            except TelegramError:
+                pass
+    if not (is_cookies_cmd or valid):
+        await message.reply_text(FILE_HINT)
+        return
     text = "cookies updated" if valid else "not a valid Instagram cookies file"
     if not deleted:
         text += " — couldn't delete your message, delete it manually"
@@ -173,7 +185,6 @@ def build_application(config: Config) -> Application:
     app.add_handler(CommandHandler(["start", "help"], cmd_start))
     app.add_handler(CommandHandler("hq", cmd_hq))
     app.add_handler(CommandHandler("status", cmd_status))
-    app.add_handler(MessageHandler(filters.Document.ALL & filters.CaptionRegex(r"^/cookies\b"),
-                                   handle_cookies_document))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     return app

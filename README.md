@@ -42,6 +42,7 @@ Instagram account for the cookies is safer.
   or paste a link into the chat.
 - Several links in one message are handled one after another.
 - `/hq on` sends images as original files instead of compressed photos. `/hq off` switches back.
+- Sending a cookies.txt file is always recognised: the bot saves it and deletes the message, even without the `/cookies` caption.
 - `/status` shows the queue, tool versions and how old your cookies are.
 
 The bot works on X without logging in. Some tweets, such as age-restricted ones, need an

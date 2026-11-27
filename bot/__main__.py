@@ -28,7 +28,12 @@ def main() -> None:
     removed = wipe_leftovers(config.download_dir)
     if removed:
         logging.getLogger("bot").info("removed %d leftover job folders", removed)
-    build_application(config).run_polling(allowed_updates=Update.ALL_TYPES)
+    try:
+        build_application(config).run_polling(allowed_updates=Update.ALL_TYPES)
+    except Exception:
+        # Logged (and scrubbed) instead of a raw traceback: errors like InvalidToken quote the token.
+        logging.getLogger("bot").exception("bot stopped")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -30,6 +30,7 @@ _SHORT_PATH = re.compile(r"^/(?:[\w-]+/)*([\w-]+)/?$")
 _IG_KIND = {"p": "post", "reel": "reel", "reels": "reel", "tv": "tv"}
 _IG_BASE = "https://www.instagram.com"
 _MAX_HOPS = 5
+_FETCHABLE_HOSTS = _IG_HOSTS | _IG_SHORT_HOSTS | _X_HOSTS | _X_SHORT_HOSTS
 
 
 def classify_url(url: str) -> LinkRef | None:
@@ -109,6 +110,8 @@ async def resolve(ref: LinkRef, http: httpx.AsyncClient) -> LinkRef:
     url = ref.url
     try:
         for _ in range(_MAX_HOPS + 1):
+            if (urlsplit(url).hostname or "").lower() not in _FETCHABLE_HOSTS:
+                raise Unsupported()  # never contact sites other than Instagram / X
             resp = await http.get(url, follow_redirects=False, timeout=15)
             if not resp.is_redirect:
                 break
@@ -118,6 +121,8 @@ async def resolve(ref: LinkRef, http: httpx.AsyncClient) -> LinkRef:
                 return hop
     except httpx.HTTPError as exc:
         raise Failed(f"couldn't open short link ({type(exc).__name__})") from None
+    finally:
+        http.cookies.clear()
     hop = _from_hop(url)
     if hop and hop.kind != "short":
         return hop

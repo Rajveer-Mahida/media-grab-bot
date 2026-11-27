@@ -95,14 +95,15 @@ class Failed(DownloadError):
         return f"Download failed: {self.reason}"
 
 
-_IG_RULES: list[tuple[type[DownloadError], tuple[str, ...]]] = [
-    (RateLimited, ("429", "too many requests", "please wait a few minutes")),
-    (LoginRequired, ("login", "checkpoint_required", "401")),
-    (NotFound, ("404", "not found", "not available", "private")),
+_URL_RE = re.compile(r"https?://[^\s'\"]+")
+_IG_RULES: list[tuple[type[DownloadError], re.Pattern[str]]] = [
+    (RateLimited, re.compile(r"\b429\b|too many requests|please wait a few minutes")),
+    (LoginRequired, re.compile(r"login|checkpoint_required|\b401\b")),
+    (NotFound, re.compile(r"\b404\b|not found|not available|private")),
 ]
-_X_RULES: list[tuple[type[DownloadError], tuple[str, ...]]] = [
-    (XLoginRequired, ("requires authentication", "nsfw", "log in", "login", "age-restricted", "not authorized")),
-    (NotFound, ("404", "unavailable", "not found", "no status found")),
+_X_RULES: list[tuple[type[DownloadError], re.Pattern[str]]] = [
+    (XLoginRequired, re.compile(r"requires authentication|nsfw|log ?in|age-restricted|not authorized")),
+    (NotFound, re.compile(r"\b404\b|tweet is unavailable|tweet unavailable|not found|no status found")),
 ]
 
 
@@ -110,15 +111,15 @@ def _reason(stderr: str) -> str:
     lines = [ln.strip() for ln in stderr.splitlines() if ln.strip()]
     if not lines:
         return "unknown error"
-    errs = [ln for ln in lines if "ERROR" in ln]
+    errs = [ln for ln in lines if "error" in ln.lower()]
     return (errs or lines)[-1]
 
 
 def classify(platform: Platform, stderr: str) -> DownloadError:
     """Map downloader stderr to the most specific DownloadError."""
-    low = stderr.lower()
+    low = _URL_RE.sub(" ", stderr).lower()
     rules = _IG_RULES if platform is Platform.INSTAGRAM else _X_RULES
-    for cls, needles in rules:
-        if any(n in low for n in needles):
+    for cls, pattern in rules:
+        if pattern.search(low):
             return cls()
     return Failed(_reason(stderr))

@@ -99,7 +99,6 @@ async def test_resolve_tco_to_x():
 async def test_resolve_to_unsupported_raises():
     client = _client({
         "https://t.co/AbCdEf": httpx.Response(301, headers={"Location": "https://example.com/"}),
-        "https://example.com/": httpx.Response(200),
     })
     with pytest.raises(Unsupported):
         await resolve(classify_url("https://t.co/AbCdEf"), client)
@@ -118,3 +117,26 @@ async def test_resolve_network_error_is_failed():
 async def test_resolve_non_short_is_identity():
     ref = classify_url("https://x.com/u/status/9")
     assert await resolve(ref, _client({})) is ref
+
+
+async def test_resolve_never_requests_third_party_hosts():
+    seen = []
+
+    def handler(request):
+        seen.append(str(request.url))
+        if request.url.host == "t.co":
+            return httpx.Response(301, headers={"Location": "https://news.example/a"})
+        return httpx.Response(200)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(Unsupported):
+        await resolve(classify_url("https://t.co/AbCdEf"), client)
+    assert seen == ["https://t.co/AbCdEf"]
+
+
+async def test_resolve_does_not_keep_cookies():
+    client = _client({
+        "https://www.instagram.com/share/reel/BAbc12/": httpx.Response(
+            302, headers={"Location": "https://www.instagram.com/reel/REAL1/", "Set-Cookie": "csrftoken=abc; Path=/"}),
+    })
+    await resolve(classify_url("https://www.instagram.com/share/reel/BAbc12/"), client)
+    assert len(client.cookies.jar) == 0

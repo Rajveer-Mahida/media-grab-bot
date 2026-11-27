@@ -73,3 +73,25 @@ async def test_generic_error_is_failed(wd):
     run = FakeRun(step(rc=1, stderr="ERROR: something broke"))
     with pytest.raises(Failed):
         await download_x(STATUS, wd, proc_run=run)
+
+
+async def test_ytdlp_restricted_to_twitter_extractors(wd):
+    run = FakeRun(step(["001.mp4"], stdout="someone\t{wd}/001.mp4\n"))
+    await download_x(STATUS, wd, proc_run=run)
+    a = run.calls[0]
+    assert a[a.index("--use-extractors") + 1] == "twitter(:.+)?"
+
+
+async def test_unsupported_url_from_linked_content_falls_back_to_images(wd):
+    run = FakeRun(step(rc=1, stderr="ERROR: Unsupported URL: https://news.example/article"),
+                  step(["1.jpg"], stdout="{wd}/1.jpg\n"))
+    r = await download_x(STATUS, wd, proc_run=run)
+    assert [i.kind for i in r.items] == ["image"]
+    assert run.calls[1][:3][2] == "gallery_dl"
+
+
+async def test_no_suitable_extractor_falls_back_to_images(wd):
+    run = FakeRun(step(rc=1, stderr="ERROR: No suitable extractor found for URL https://youtu.be/x"),
+                  step(["1.jpg"], stdout="{wd}/1.jpg\n"))
+    r = await download_x(STATUS, wd, proc_run=run)
+    assert len(r.items) == 1

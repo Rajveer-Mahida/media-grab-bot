@@ -111,3 +111,17 @@ async def test_fallback_failure_reports_ytdlp_error(wd, cookies):
                   step(rc=1, stderr="ERROR: [Instagram] R1: Requested content is not available"))
     with pytest.raises(NotFound):
         await download_instagram(REEL, wd, cookies, proc_run=run)
+
+
+async def test_gallery_dl_fails_fast_on_429(wd, cookies):
+    run = FakeRun(step(["1.jpg"], stdout="{wd}/1.jpg\n"))
+    await download_instagram(POST, wd, cookies, proc_run=run)
+    a = run.calls[0]
+    assert "sleep-429=0" in a and "retries=1" in a
+
+
+async def test_ytdlp_fallback_restricted_to_instagram_extractors(wd, cookies):
+    run = FakeRun(step(rc=1, stderr="something odd"), step(["001.mp4"], stdout="u\t{wd}/001.mp4\n"))
+    await download_instagram(REEL, wd, cookies, proc_run=run)
+    y = run.calls[1]
+    assert y[y.index("--use-extractors") + 1] == "instagram(:.+)?"

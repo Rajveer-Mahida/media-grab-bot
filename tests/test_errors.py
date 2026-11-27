@@ -74,3 +74,25 @@ def test_user_messages_exact():
 
 def test_nocookies_is_login_required():
     assert isinstance(NoCookies(), LoginRequired)
+
+
+@pytest.mark.parametrize("stderr,cls", [
+    ("[instagram][error] HTTP Error 500 for 'https://www.instagram.com/api/v1/media/3429001234/info/'", Failed),
+    ("[instagram][error] 'Server Error' for 'https://i.instagram.com/p/C404x/'", Failed),
+    ("[instagram][error] '429 Too Many Requests' for 'https://www.instagram.com/api/v1/x'", RateLimited),
+])
+def test_classify_instagram_ignores_numbers_in_urls(stderr, cls):
+    assert type(classify(Platform.INSTAGRAM, stderr)) is cls
+
+
+@pytest.mark.parametrize("stderr", [
+    "ERROR: [twitter] 1794041234567890123: HTTP Error 503: Service Unavailable",
+    "ERROR: [twitter] 1790000000004041234: Something broke",
+])
+def test_classify_x_server_errors_and_ids_are_failed(stderr):
+    assert type(classify(Platform.X, stderr)) is Failed
+
+
+def test_reason_picks_lowercase_error_lines():
+    err = classify(Platform.INSTAGRAM, "[instagram][info] fine\n[instagram][error] boom happened\n[debug] tail")
+    assert err.user_message == "Download failed: [instagram][error] boom happened"
